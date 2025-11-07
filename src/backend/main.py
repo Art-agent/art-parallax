@@ -30,9 +30,46 @@ app.add_middleware(
 
 logger = get_logger(__name__)
 
-scheduler_manage = None
+scheduler_manage: SchedulerManage | None = None
 request_handler = RequestHandler()
 
+
+def _init_server():
+  global scheduler_manage
+  args = parse_args()
+  set_log_level(args.log_level)
+  logger.info(f"args: {args}")
+  if args.log_level != "DEBUG":
+    display_parallax_run()
+  check_latest_release()
+
+  scheduler_manage = SchedulerManage(
+    initial_peers=args.initial_peers,
+    relay_servers=args.relay_servers,
+    dht_prefix=args.dht_prefix,
+    host_maddrs=[
+      f"/ip4/0.0.0.0/tcp/{args.tcp_port}",
+      f"/ip4/0.0.0.0/udp/{args.udp_port}/quic-v1",
+    ],
+    announce_maddrs=args.announce_maddrs,
+    http_port=args.port,
+  )
+
+  request_handler.set_scheduler_manage(scheduler_manage)
+
+  model_name = args.model_name
+  init_nodes_num = args.init_nodes_num
+  is_local_network = args.is_local_network
+  if model_name is not None and init_nodes_num is not None:
+    scheduler_manage.run(model_name, init_nodes_num, is_local_network)
+
+  # host = args.host
+  # port = args.port
+
+  # uvicorn.run(app, host=host, port=port, log_level="info", loop="uvloop")
+
+
+_init_server()
 
 @app.get("/model/list")
 async def model_list():
@@ -51,6 +88,8 @@ async def scheduler_init(raw_request: Request):
     model_name = request_data.get("model_name")
     init_nodes_num = request_data.get("init_nodes_num")
     is_local_network = request_data.get("is_local_network")
+    if (scheduler_manage is None):
+      raise ValueError("Scheduler manager is none and not initialized")
     if scheduler_manage.is_running():
         # todo reinit
         pass
@@ -67,6 +106,8 @@ async def scheduler_init(raw_request: Request):
 
 @app.get("/node/join/command")
 async def node_join_command():
+    if (scheduler_manage is None):
+      raise ValueError("Scheduler manager is none and not initialized")
     peer_id = scheduler_manage.get_peer_id()
     is_local_network = scheduler_manage.get_is_local_network()
 
@@ -81,7 +122,11 @@ async def node_join_command():
 
 @app.get("/cluster/status")
 async def cluster_status():
+    if (scheduler_manage is None):
+      raise ValueError("Scheduler manager is none and not initialized")
     async def stream_cluster_status():
+        if (scheduler_manage is None):
+          raise ValueError("Scheduler manager is none and not initialized")
         while True:
             yield json.dumps(scheduler_manage.get_cluster_status(), ensure_ascii=False) + "\n"
             await asyncio.sleep(1)
@@ -99,8 +144,8 @@ async def cluster_status():
 @app.post("/v1/chat/completions")
 async def openai_v1_chat_completions(raw_request: Request):
     request_data = await raw_request.json()
-    request_id = uuid.uuid4()
-    received_ts = time.time()
+    request_id = str(uuid.uuid4())
+    received_ts = int(time.time())
     return await request_handler.v1_chat_completions(request_data, request_id, received_ts)
 
 
@@ -121,36 +166,3 @@ app.mount(
     StaticFiles(directory=str(get_project_root() / "src" / "frontend" / "dist"), html=True),
     name="static",
 )
-
-if __name__ == "__main__":
-    args = parse_args()
-    set_log_level(args.log_level)
-    logger.info(f"args: {args}")
-    if args.log_level != "DEBUG":
-        display_parallax_run()
-    check_latest_release()
-
-    scheduler_manage = SchedulerManage(
-        initial_peers=args.initial_peers,
-        relay_servers=args.relay_servers,
-        dht_prefix=args.dht_prefix,
-        host_maddrs=[
-            f"/ip4/0.0.0.0/tcp/{args.tcp_port}",
-            f"/ip4/0.0.0.0/udp/{args.udp_port}/quic-v1",
-        ],
-        announce_maddrs=args.announce_maddrs,
-        http_port=args.port,
-    )
-
-    request_handler.set_scheduler_manage(scheduler_manage)
-
-    model_name = args.model_name
-    init_nodes_num = args.init_nodes_num
-    is_local_network = args.is_local_network
-    if model_name is not None and init_nodes_num is not None:
-        scheduler_manage.run(model_name, init_nodes_num, is_local_network)
-
-    host = args.host
-    port = args.port
-
-    uvicorn.run(app, host=host, port=port, log_level="info", loop="uvloop")
