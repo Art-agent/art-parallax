@@ -8,14 +8,14 @@ import requests
 # Call docker image to serve to modal
 parallax_image = (
   # We will use hopper for inference since it is cheaper
-  modal.Image.from_dockerfile("./docker/Dockerfile.hopper") #type: ignore
+  modal.Image.from_dockerfile("./docker/Dockerfile.hopper")
 )
 
 app = modal.App( #type: ignore
   name="art-parallax-inference", image=parallax_image
 )
 
-volume = modal.Volume.from_name("my-persisted-volume", create_if_missing=True) #type: ignore
+volume = modal.Volume.from_name("my-persisted-volume", create_if_missing=True)
 
 @app.function(gpu="H100", volumes={"/parallax": volume}, container_idle_timeout=600, allow_concurrent_inputs=64, timeout=60)
 @modal.asgi_app() 
